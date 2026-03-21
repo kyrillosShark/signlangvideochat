@@ -4,46 +4,43 @@ A Flask + Socket.IO application that provides:
 
 1. **Live Video Chat** between participants using WebRTC.
 2. **Real-Time Sign Language Detection** using TensorFlow + Mediapipe.
-3. **Optional** text overlay and TTS (Text-to-Speech) on the client side.
-
-This repository includes:
-- A Flask server (`app.py` or similar) that serves HTML/JS to the browser.
-- Socket.IO events to handle real-time signaling for WebRTC and sign detection.
-- A TensorFlow model (`action.h5`) and Mediapipe to detect signs from incoming frames.
+3. **Custom Model Training** — record your own signs and train a new model from the browser.
+4. **Optional** text overlay and TTS (Text-to-Speech) on the client side.
 
 ---
 
 ## Table of Contents
 
-1. [Features](#features)  
-2. [Demo Overview](#demo-overview)  
-3. [Setup & Installation](#setup--installation)  
-4. [Usage](#usage)  
-5. [Optional: ngrok](#optional-ngrok)  
-6. [Environment Variables](#environment-variables)  
-7. [Common Issues](#common-issues)  
-8. [Project Structure](#project-structure)  
+1. [Features](#features)
+2. [Demo Overview](#demo-overview)
+3. [Setup & Installation](#setup--installation)
+4. [Usage](#usage)
+5. [Training Your Own Model](#training-your-own-model)
+6. [Environment Variables](#environment-variables)
+7. [Common Issues](#common-issues)
+8. [Project Structure](#project-structure)
 9. [License](#license)
 
 ---
 
 ## Features
 
-- **WebRTC Video Chat**: Peer-to-peer audio/video streaming between participants in a “meeting.”
-- **Pose & Hand Landmarks**: Mediapipe extracts key landmarks from the user’s live camera frames.
-- **LSTM Model**: A TensorFlow model to interpret repeated frames and detect specific sign language gestures.
-- **Real-Time Feedback**: Detected sign is emitted back to all participants (e.g., “Hello,” “You,” etc.).
-- **Optional TTS (Client-Side)**: Each user’s browser can speak detected signs out loud if they enable TTS.
+- **WebRTC Video Chat**: Peer-to-peer audio/video streaming between participants in a meeting.
+- **Pose & Hand Landmarks**: Mediapipe extracts pose, face, and hand keypoints from live camera frames.
+- **LSTM Model**: A TensorFlow LSTM model interprets sequences of frames to detect sign language gestures.
+- **Real-Time Feedback**: Detected signs are broadcast to all participants in the meeting room.
+- **In-Browser Training**: Record video sequences for any sign directly from the browser and train a new LSTM model without leaving the app.
+- **Optional TTS (Client-Side)**: Each user's browser can speak detected signs out loud.
 
 ---
 
 ## Demo Overview
 
-1. **Create or Join a Meeting**: Users land on the home page, enter a meeting ID & password to either create or join a session.
-2. **Join the Video Room**: Once in the room, your local video is displayed, and remote video (from another user) will appear once they join.
-3. **Enable Sign Language Detection**: When toggled on, your browser sends base64-encoded frames to the server at ~25 FPS.
-4. **Server Inference**: The server uses Mediapipe + an LSTM model (`action.h5`) to detect signs.
-5. **Broadcast Recognized Sign**: Detected signs (e.g., “hello”) are broadcast to everyone in the room; each client can show or speak them.
+1. **Create or Join a Meeting**: Enter a meeting ID and password to create or join a session.
+2. **Join the Video Room**: Your local video appears immediately; the remote participant's video appears when they join.
+3. **Enable Sign Language Detection**: Toggling it on sends your webcam frames to the server at ~25 FPS.
+4. **Server Inference**: The server runs Mediapipe keypoint extraction + LSTM inference on each frame sequence.
+5. **Broadcast Recognized Sign**: Detected signs are sent to everyone in the room and optionally spoken via TTS.
 
 ---
 
@@ -59,8 +56,11 @@ cd videochat
 ### 2. Create a Virtual Environment (Recommended)
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
 ```
 
 ### 3. Install Dependencies
@@ -69,128 +69,177 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Your `requirements.txt` might include:
+Current working dependency versions:
+
 ```
 Flask==2.3.2
-Flask-SocketIO==5.5.2
-tensorflow==2.11.0
-mediapipe==0.9.3.0
+Flask-SocketIO==5.6.1
+tensorflow==2.12.0
+mediapipe==0.10.5
 opencv-python==4.7.0.72
 pyngrok==5.2.1
 eventlet==0.33.3
+protobuf==3.20.3
 ```
-(Adjust versions as needed.)
 
-### 4. Ensure Model Files are Present
+### 4. Ensure the Model File is Present
 
-Place your trained TensorFlow model in the repository root or a subfolder:
+Place your trained TensorFlow model in the project root:
+
 ```
 action.h5
 ```
-The path in the code is `MODEL_PATH = "action.h5"`. Change it if necessary.
+
+The model path is set via `MODEL_PATH = "action.h5"` in `main.py`. If you don't have a pre-trained model, use the built-in training page to create one (see [Training Your Own Model](#training-your-own-model)).
 
 ---
 
 ## Usage
 
-1. **Run the Server**  
-   ```bash
-   python main.py
-   ```
-   By default, it starts at `http://localhost:8000`.
+### 1. Run the Server
 
-2. **Open in Browser**  
-   - Navigate to `http://localhost:8000`.
-   - Create a meeting (e.g., ID: `room123`, Password: `abc`).
-   - In a second browser or incognito window, join the same meeting.
+```bash
+python main.py
+```
 
-3. **Enable Camera & Microphone**  
-   - Your browser will prompt you to allow camera/mic access.
-   - You should see your local video. When the other participant joins, you’ll see their video too.
+The server starts at `http://localhost:8000` by default.
 
-4. **Toggle Features** in the top toolbar:
-   - **Toggle Video** / **Toggle Audio** to enable or disable your camera or mic.
-   - **Enable Sign Language**: Start sending frames to the server for sign detection.
-   - **Enable TTS**: Speak out recognized signs locally.
+### 2. Open in Browser
 
+- Navigate to `http://localhost:8000`.
+- Create a meeting (e.g., ID: `room123`, Password: `abc`).
+- Open a second browser tab or incognito window and join the same meeting.
 
-https://github.com/user-attachments/assets/d84f1bb3-2e89-4395-8467-4ec927070e3f
+### 3. Enable Camera & Microphone
 
+Your browser will prompt for camera and mic access. Once granted, your local video appears. The remote participant's video appears when they connect.
 
-5. **Leave** the meeting when finished.
+### 4. Toolbar Controls
+
+| Button | Description |
+|---|---|
+| Toggle Video | Enable/disable your camera |
+| Toggle Audio | Enable/disable your microphone |
+| Enable Sign Language | Start sending frames for sign detection |
+| Enable TTS | Speak recognized signs aloud (local only) |
+| Leave | End the call and return to home |
+
+### 5. Sign Detection
+
+When **Enable Sign Language** is active, the server detects signs and overlays the result on screen for all participants.
 
 ---
 
-## Optional: ngrok
+## Training Your Own Model
 
-If you want to quickly share your local server with an external user:
-1. Set `NGROK_AUTH_TOKEN` in your environment.
-2. The code attempts to start an ngrok tunnel on port `8000`:
-   ```bash
-   python main.py
-   ```
-3. Copy the generated ngrok URL from your terminal logs.
+The app includes a built-in training interface at `http://localhost:8000/train`, accessible from the home page via the **Train Sign Language Model** button.
+
+### Training Workflow
+
+1. **Add Signs** — Type a sign name (e.g. `hello`, `thank_you`) and press Enter or click `+`. Add at least 2 signs.
+
+2. **Record Sequences** — Select a sign, then click **Record Sequence**:
+   - A 3-second countdown begins.
+   - The server captures 10 frames from your webcam and extracts Mediapipe keypoints.
+   - Each completed recording is saved as one sequence.
+   - Repeat to build up your dataset (30+ sequences per sign recommended).
+
+3. **Train the Model** — Set the number of epochs (50–100 recommended) and click **Train Model**:
+   - Training runs on the server and progress updates appear in real time.
+   - When complete, the new `action.h5` is saved and immediately used for detection in live meetings.
+
+### Tips for Good Accuracy
+
+- Record **30 or more sequences** per sign.
+- Vary your position, distance from camera, and lighting between recordings.
+- Include a **`not_signing`** class (idle/neutral hand position) to reduce false positives.
+- Keep the motion consistent within each recording for the same sign.
+- Use **50–100 epochs** for most datasets.
+
+### Training Data Storage
+
+Recorded sequences are saved to the `training_data/` directory:
+
+```
+training_data/
+├── hello/
+│   ├── seq_0.npy
+│   ├── seq_1.npy
+│   └── ...
+├── not_signing/
+│   └── ...
+└── thank_you/
+    └── ...
+```
+
+Each `.npy` file is a `(10, 1662)` array — 10 frames of flattened pose, face, and hand keypoints. This data persists between server restarts, so you can add more sequences over time without restarting.
 
 ---
 
 ## Environment Variables
 
-You can set these via `.env` or directly in your shell:
+Set these in your shell or a `.env` file:
 
-- **`PORT`**: Port on which the Flask/SocketIO server listens (default `8000`).
-- **`SECRET_KEY`**: Flask session secret key (default `'your_secret_key_here'`).
-- **`TURN_SERVER_URL`**: (Optional) A TURN server URL if you need NAT traversal.
-- **`TURN_SERVER_USERNAME`** & **`TURN_SERVER_CREDENTIAL`**: Credentials for the TURN server.
-- **`NGROK_AUTH_TOKEN`**: If you want the app to open an ngrok tunnel automatically.
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8000` | Port the server listens on |
+| `SECRET_KEY` | `your_secret_key_here` | Flask session secret key |
+| `TURN_SERVER_URL` | *(none)* | TURN server URL for NAT traversal |
+| `TURN_SERVER_USERNAME` | *(none)* | TURN server username |
+| `TURN_SERVER_CREDENTIAL` | *(none)* | TURN server credential |
 
 ---
 
 ## Common Issues
 
-1. **No Remote Video**  
-   - Ensure `usersInRoom` is sent to the client so it knows to create an offer.
-   - Check logs to confirm the offer/answer exchange and ICE candidates are happening.
-   - Confirm each side calls `peerConnection.addTrack(track, localStream);`.
+**No Remote Video**
+- Confirm both participants have joined the same meeting ID.
+- Check browser console for ICE/SDP errors.
+- On non-localhost networks, configure a TURN server via environment variables.
 
-2. **Sign Detected, But Shows as Empty**  
-   - The `SIGN_TO_ENGLISH` dictionary in the code may map certain signs to `""`. If a recognized sign maps to an empty string, it won’t display or speak. Update to meaningful strings.
+**Sign Detected but Not Displayed**
+- The `SIGN_TO_ENGLISH` mapping in `main.py` may map some signs to `""`. Update the dictionary to return the sign name or a sentence.
 
-3. **TTS Not Heard by Other Participants**  
-   - Client-side TTS is local only; it doesn’t route over WebRTC. If you want everyone to hear TTS, you must handle audio mixing or each participant individually runs TTS upon receiving the `recognized_sign`.
+**Model Not Found on Startup**
+- Ensure `action.h5` exists in the project root, or use the training page to generate a new one.
 
-4. **Model Not Found**  
-   - Make sure `action.h5` is in the correct location, or update `MODEL_PATH` accordingly.
+**TensorFlow / Keras Version Errors**
+- Use the exact versions listed in requirements.txt. The app includes compatibility patches for loading models saved with older Keras versions.
 
-5. **Permissions / Browser Blocks**  
-   - If you block camera or mic, the remote participant sees no video or hears no audio.  
-   - Use Incognito or a different browser to fully test multi-user flow.
+**TTS Not Heard by Other Participants**
+- TTS runs locally in each participant's browser. It does not transmit over WebRTC. All participants receive the `recognized_sign` event and can individually enable TTS.
+
+**Camera Access Denied on Training Page**
+- Ensure you are on `http://localhost` or HTTPS. Browsers block camera access on plain HTTP for non-localhost origins.
 
 ---
 
 ## Project Structure
 
-A typical layout:
-
 ```
-<repository-root>/
+signlangvideochat/
 │
-├─ app.py                # Main Flask-SocketIO server
-├─ requirements.txt
-├─ action.h5             # Your trained TF model
-├─ templates/
-│   ├─ index.html        # Landing page for meeting creation/join
-│   └─ room.html         # Main video chat page with sign detection
-├─ static/               # (Optional) For static files if needed
+├── main.py                 # Flask-SocketIO server, sign detection, training logic
+├── requirements.txt        # Python dependencies
+├── action.h5               # Trained TensorFlow LSTM model
 │
-└─ README.md             # This readme
+├── templates/
+│   ├── index.html          # Home page — create or join a meeting
+│   ├── room.html           # Video chat room with sign language overlay
+│   └── train.html          # In-browser model training interface
+│
+├── training_data/          # Recorded keypoint sequences (auto-created)
+│   └── <sign_name>/
+│       ├── seq_0.npy
+│       └── ...
+│
+└── static/
+    └── css/
+        └── styles.css
 ```
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE), allowing you to freely modify and distribute it. Feel free to adapt any portion of the code to suit your needs.
-
----
-
-**Enjoy your real-time sign language detection and WebRTC video chat application!** Feel free to open an issue or a pull request on GitHub if you encounter problems or have suggestions.
+This project is licensed under the [MIT License](LICENSE), allowing you to freely modify and distribute it.

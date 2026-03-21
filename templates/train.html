@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Train Sign Language Model</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #74ebd5 0%, #acb6e5 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 1.5rem;
+    }
+
+    .page-header {
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 1rem 1.5rem;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    h5.section-title {
+      font-weight: 700;
+      color: #343a40;
+      margin-bottom: 1rem;
+    }
+
+    .sign-item {
+      background: rgba(108, 99, 255, 0.05);
+      border: 1px solid rgba(108, 99, 255, 0.2);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .sign-item:hover {
+      background: rgba(108, 99, 255, 0.1);
+    }
+
+    .sign-item.selected {
+      border-color: #6c63ff;
+      background: rgba(108, 99, 255, 0.15);
+    }
+
+    .seq-badge {
+      background: linear-gradient(135deg, #6c63ff, #5753c9);
+      color: white;
+      border-radius: 20px;
+      padding: 2px 10px;
+      font-size: 0.8rem;
+    }
+
+    #videoPreview {
+      width: 100%;
+      border-radius: 12px;
+      background: #000;
+      max-height: 260px;
+      object-fit: cover;
+    }
+
+    .btn-record {
+      background: linear-gradient(135deg, #ff6b6b, #ee0979);
+      border: none;
+      border-radius: 50px;
+      color: white;
+      padding: 10px 28px;
+      font-size: 1rem;
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+
+    .btn-record:hover:not(:disabled) {
+      transform: scale(1.05);
+      box-shadow: 0 0 18px rgba(238, 9, 121, 0.45);
+      color: white;
+    }
+
+    .btn-record:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: white;
+    }
+
+    .btn-train {
+      background: linear-gradient(135deg, #6c63ff, #5753c9);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      padding: 10px;
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+
+    .btn-train:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(108, 99, 255, 0.4);
+      color: white;
+    }
+
+    .btn-train:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      color: white;
+    }
+
+    .progress-bar-custom {
+      background: linear-gradient(135deg, #6c63ff, #5753c9);
+      transition: width 0.4s ease;
+    }
+
+    .recording-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ee0979;
+      display: inline-block;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.2; }
+    }
+
+    .countdown-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.65);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 5rem;
+      font-weight: 700;
+      color: #74ebd5;
+    }
+
+    .toast-wrap {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+    }
+
+    .toast-msg {
+      padding: 12px 18px;
+      border-radius: 10px;
+      color: white;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      animation: fadeSlide 0.3s ease;
+    }
+
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .tip-list li {
+      margin-bottom: 6px;
+      color: #555;
+      font-size: 0.88rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="page-header">
+    <a href="/" class="btn btn-sm btn-outline-secondary">
+      <i class="fas fa-arrow-left me-1"></i>Back
+    </a>
+    <h5 class="mb-0 fw-700" style="color:#343a40;">
+      <i class="fas fa-graduation-cap me-2" style="color:#6c63ff"></i>Sign Language Training
+    </h5>
+    <div></div>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Left: Signs Management -->
+    <div class="col-lg-3">
+      <div class="glass-card h-100">
+        <h5 class="section-title"><i class="fas fa-list me-2" style="color:#6c63ff"></i>Signs</h5>
+
+        <div class="input-group mb-3">
+          <input type="text" id="newSignInput" class="form-control"
+                 placeholder="e.g. hello, thank_you" maxlength="30">
+          <button class="btn btn-outline-primary" onclick="addSign()">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+
+        <div id="signsList" style="max-height: 420px; overflow-y: auto;">
+          <div id="noSignsMsg" class="text-center text-muted py-4">
+            <i class="fas fa-hand-paper mb-2 d-block" style="font-size:2.2rem; opacity:0.3"></i>
+            Add signs to begin
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle: Recording -->
+    <div class="col-lg-5">
+      <div class="glass-card">
+        <h5 class="section-title">
+          <i class="fas fa-video me-2" style="color:#6c63ff"></i>Record Sequences
+          <span id="recordingForBadge" class="seq-badge ms-2 d-none"></span>
+        </h5>
+
+        <!-- Video -->
+        <div class="position-relative mb-3">
+          <video id="videoPreview" autoplay muted playsinline></video>
+          <div id="countdownOverlay" class="countdown-overlay d-none">
+            <span id="countdownNum"></span>
+          </div>
+        </div>
+
+        <!-- Capture progress -->
+        <div id="captureProgress" class="d-none mb-3">
+          <div class="d-flex justify-content-between mb-1">
+            <small><span class="recording-dot me-1"></span>Capturing frames</small>
+            <small id="captureCountLabel">0 / 10</small>
+          </div>
+          <div class="progress" style="height:6px;">
+            <div id="captureBar" class="progress-bar progress-bar-custom" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="text-center">
+          <p id="selectPrompt" class="text-muted mb-2">
+            <i class="fas fa-arrow-left me-1"></i>Select a sign first
+          </p>
+          <button id="recordBtn" class="btn btn-record" onclick="startCountdown()" disabled>
+            <i class="fas fa-circle me-2"></i>Record Sequence
+          </button>
+        </div>
+
+        <!-- Selected sign info -->
+        <div id="signInfoBox" class="mt-3 p-3 rounded d-none"
+             style="background:rgba(108,99,255,0.08); border:1px solid rgba(108,99,255,0.25);">
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Sign:</span>
+            <strong id="infoSignName">—</strong>
+          </div>
+          <div class="d-flex justify-content-between mt-1">
+            <span class="text-muted">Sequences recorded:</span>
+            <strong id="infoSeqCount">0</strong>
+          </div>
+          <small class="text-muted">Aim for 30+ sequences per sign</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Train + Tips -->
+    <div class="col-lg-4">
+      <div class="glass-card mb-4">
+        <h5 class="section-title"><i class="fas fa-brain me-2" style="color:#6c63ff"></i>Train Model</h5>
+
+        <label class="form-label d-flex justify-content-between">
+          <span>Epochs</span><strong id="epochsVal">50</strong>
+        </label>
+        <input type="range" class="form-range mb-3" id="epochsSlider"
+               min="10" max="200" value="50" step="10"
+               oninput="document.getElementById('epochsVal').textContent=this.value">
+
+        <!-- Data summary -->
+        <div class="mb-3 p-3 rounded" style="background:rgba(0,0,0,0.04); font-size:0.87rem;">
+          <div class="text-muted mb-1 fw-bold">Collected data</div>
+          <div id="dataSummary">No data yet</div>
+        </div>
+
+        <button id="trainBtn" class="btn btn-train w-100 mb-3" onclick="startTraining()" disabled>
+          <i class="fas fa-play me-2"></i>Train Model
+        </button>
+
+        <!-- Training progress -->
+        <div id="trainingProgressBox" class="d-none">
+          <div class="d-flex justify-content-between mb-1">
+            <small id="trainingMsg">Starting...</small>
+            <small id="trainingPct">0%</small>
+          </div>
+          <div class="progress mb-2" style="height:8px;">
+            <div id="trainingBar" class="progress-bar progress-bar-custom" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div id="trainingResult" class="d-none alert" style="font-size:0.85rem;"></div>
+      </div>
+
+      <!-- Tips -->
+      <div class="glass-card">
+        <h5 class="section-title"><i class="fas fa-lightbulb me-2" style="color:#f0a500"></i>Tips</h5>
+        <ul class="tip-list ps-3">
+          <li>Record <strong>30+ sequences</strong> per sign for good accuracy</li>
+          <li>Vary your position &amp; lighting between recordings</li>
+          <li>Add a <strong>not_signing</strong> class to reduce false positives</li>
+          <li>Keep hand movements consistent within each sign</li>
+          <li>Use <strong>50–100 epochs</strong> for best results</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="toast-wrap" id="toastContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+  <script>
+    const socket = io();
+
+    let signs = {};          // { name: seqCount }
+    let selectedSign = null;
+    let isRecording = false;
+    let captureInterval = null;
+    let countdownTimer = null;
+    let framesCaptured = 0;
+
+    // ── Camera ──────────────────────────────────────────
+    (async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        document.getElementById('videoPreview').srcObject = stream;
+      } catch {
+        showToast('Camera access denied. Please allow camera permissions.', 'danger');
+      }
+    })();
+
+    // ── Signs list ───────────────────────────────────────
+    function addSign() {
+      const input = document.getElementById('newSignInput');
+      const name = input.value.trim().toLowerCase().replace(/\s+/g, '_');
+      if (!name) return;
+      if (signs.hasOwnProperty(name)) { showToast(`"${name}" already exists`, 'warning'); return; }
+      signs[name] = 0;
+      input.value = '';
+      renderSigns();
+      updateSummary();
+    }
+
+    document.getElementById('newSignInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') addSign();
+    });
+
+    function selectSign(name) {
+      selectedSign = name;
+      document.querySelectorAll('.sign-item').forEach(el => el.classList.remove('selected'));
+      document.getElementById('sign-item-' + name).classList.add('selected');
+      document.getElementById('recordBtn').disabled = false;
+      document.getElementById('selectPrompt').classList.add('d-none');
+      document.getElementById('recordingForBadge').textContent = name;
+      document.getElementById('recordingForBadge').classList.remove('d-none');
+      document.getElementById('signInfoBox').classList.remove('d-none');
+      document.getElementById('infoSignName').textContent = name;
+      document.getElementById('infoSeqCount').textContent = signs[name] || 0;
+    }
+
+    function deleteSign(name) {
+      if (!confirm(`Delete all recorded data for "${name}"?`)) return;
+      socket.emit('delete_sign_data', { sign: name });
+      delete signs[name];
+      if (selectedSign === name) {
+        selectedSign = null;
+        document.getElementById('recordBtn').disabled = true;
+        document.getElementById('recordingForBadge').classList.add('d-none');
+        document.getElementById('signInfoBox').classList.add('d-none');
+        document.getElementById('selectPrompt').classList.remove('d-none');
+      }
+      renderSigns();
+      updateSummary();
+    }
+
+    function renderSigns() {
+      const list = document.getElementById('signsList');
+      const names = Object.keys(signs);
+      if (names.length === 0) {
+        list.innerHTML = `<div id="noSignsMsg" class="text-center text-muted py-4">
+          <i class="fas fa-hand-paper mb-2 d-block" style="font-size:2.2rem;opacity:0.3"></i>
+          Add signs to begin</div>`;
+        return;
+      }
+      list.innerHTML = names.map(name => `
+        <div class="sign-item ${name === selectedSign ? 'selected' : ''}"
+             id="sign-item-${name}" onclick="selectSign('${name}')">
+          <span><i class="fas fa-hand-point-right me-2" style="color:#6c63ff;opacity:0.7"></i>
+            <strong>${name}</strong></span>
+          <span class="d-flex align-items-center gap-2">
+            <span class="seq-badge">${signs[name]} seq</span>
+            <button class="btn btn-sm p-0 text-danger" title="Delete"
+                    onclick="event.stopPropagation();deleteSign('${name}')">
+              <i class="fas fa-trash" style="font-size:0.78rem"></i>
+            </button>
+          </span>
+        </div>`).join('');
+
+      const total = Object.values(signs).reduce((a, b) => a + b, 0);
+      document.getElementById('trainBtn').disabled = names.length < 2 || total < names.length * 2;
+    }
+
+    function updateSummary() {
+      const el = document.getElementById('dataSummary');
+      const names = Object.keys(signs);
+      if (names.length === 0) { el.innerHTML = '<span class="text-muted">No data yet</span>'; return; }
+      el.innerHTML = names.map(n =>
+        `<div class="d-flex justify-content-between">
+           <span>${n}</span>
+           <span style="color:#6c63ff;font-weight:600">${signs[n]} seq</span>
+         </div>`).join('');
+    }
+
+    // ── Recording ────────────────────────────────────────
+    function startCountdown() {
+      if (!selectedSign || isRecording) return;
+      const overlay = document.getElementById('countdownOverlay');
+      const num = document.getElementById('countdownNum');
+      overlay.classList.remove('d-none');
+      document.getElementById('recordBtn').disabled = true;
+
+      let count = 3;
+      num.textContent = count;
+      countdownTimer = setInterval(() => {
+        count--;
+        if (count === 0) {
+          clearInterval(countdownTimer);
+          overlay.classList.add('d-none');
+          beginCapture();
+        } else {
+          num.textContent = count;
+        }
+      }, 1000);
+    }
+
+    function beginCapture() {
+      isRecording = true;
+      framesCaptured = 0;
+      document.getElementById('captureProgress').classList.remove('d-none');
+      setCaptureBar(0);
+      socket.emit('start_sequence', { sign: selectedSign });
+    }
+
+    function grabFrame() {
+      const video = document.getElementById('videoPreview');
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      return canvas.toDataURL('image/jpeg', 0.7);
+    }
+
+    function setCaptureBar(n) {
+      document.getElementById('captureBar').style.width = (n / 10 * 100) + '%';
+      document.getElementById('captureCountLabel').textContent = `${n} / 10`;
+    }
+
+    // ── Socket events ────────────────────────────────────
+    socket.on('sequence_started', () => {
+      captureInterval = setInterval(() => {
+        if (framesCaptured < 10) {
+          socket.emit('training_frame', { data: grabFrame() });
+        } else {
+          clearInterval(captureInterval);
+        }
+      }, 200);
+    });
+
+    socket.on('frame_processed', data => {
+      framesCaptured = data.count;
+      setCaptureBar(framesCaptured);
+    });
+
+    socket.on('sequence_saved', data => {
+      isRecording = false;
+      clearInterval(captureInterval);
+      document.getElementById('captureProgress').classList.add('d-none');
+      document.getElementById('recordBtn').disabled = false;
+      signs[data.sign] = data.seq_num;
+      renderSigns();
+      updateSummary();
+      document.getElementById('infoSeqCount').textContent = data.seq_num;
+      showToast(`Sequence ${data.seq_num} saved for "${data.sign}"`, 'success');
+    });
+
+    socket.on('sequence_error', data => {
+      isRecording = false;
+      clearInterval(captureInterval);
+      clearInterval(countdownTimer);
+      document.getElementById('countdownOverlay').classList.add('d-none');
+      document.getElementById('captureProgress').classList.add('d-none');
+      document.getElementById('recordBtn').disabled = false;
+      showToast('Error: ' + data.msg, 'danger');
+    });
+
+    socket.on('sign_data_deleted', data => {
+      showToast(`Deleted data for "${data.sign}"`, 'secondary');
+    });
+
+    // ── Training ─────────────────────────────────────────
+    function startTraining() {
+      const epochs = document.getElementById('epochsSlider').value;
+      document.getElementById('trainBtn').disabled = true;
+      document.getElementById('trainingResult').classList.add('d-none');
+      document.getElementById('trainingProgressBox').classList.remove('d-none');
+      socket.emit('train_model', { epochs: parseInt(epochs) });
+    }
+
+    socket.on('training_progress', data => {
+      document.getElementById('trainingMsg').textContent = data.msg;
+      document.getElementById('trainingPct').textContent = data.percent + '%';
+      document.getElementById('trainingBar').style.width = data.percent + '%';
+    });
+
+    socket.on('training_complete', data => {
+      document.getElementById('trainingProgressBox').classList.add('d-none');
+      document.getElementById('trainBtn').disabled = false;
+      const el = document.getElementById('trainingResult');
+      el.className = 'alert alert-success';
+      el.classList.remove('d-none');
+      el.innerHTML = `<i class="fas fa-check-circle me-2"></i>${data.msg}
+        <br><small>Signs: ${data.actions.join(', ')}</small>`;
+      showToast('Model trained successfully!', 'success');
+    });
+
+    socket.on('training_error', data => {
+      document.getElementById('trainingProgressBox').classList.add('d-none');
+      document.getElementById('trainBtn').disabled = false;
+      const el = document.getElementById('trainingResult');
+      el.className = 'alert alert-danger';
+      el.classList.remove('d-none');
+      el.innerHTML = `<i class="fas fa-exclamation-circle me-2"></i>${data.msg}`;
+    });
+
+    // ── Load existing data on connect ────────────────────
+    socket.on('connect', () => socket.emit('get_training_data_info', {}));
+
+    socket.on('training_data_info', data => {
+      signs = data.info;
+      renderSigns();
+      updateSummary();
+    });
+
+    // ── Toast helper ─────────────────────────────────────
+    const toastColors = { success: '#28a745', danger: '#dc3545', warning: '#e0a800', secondary: '#6c757d' };
+
+    function showToast(msg, type) {
+      const el = document.createElement('div');
+      el.className = 'toast-msg';
+      el.style.background = toastColors[type] || toastColors.secondary;
+      el.textContent = msg;
+      document.getElementById('toastContainer').appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+  </script>
+</body>
+</html>

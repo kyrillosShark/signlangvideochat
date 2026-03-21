@@ -17,6 +17,8 @@ eventlet.monkey_patch()
 import os
 import time
 import base64
+import threading
+import shutil
 import numpy as np
 import cv2
 
@@ -47,6 +49,11 @@ TURN_SERVER_URL = os.getenv('TURN_SERVER_URL', None)
 TURN_SERVER_USERNAME = os.getenv('TURN_SERVER_USERNAME', '')
 TURN_SERVER_CREDENTIAL = os.getenv('TURN_SERVER_CREDENTIAL','')
 
+# --------------------- Training Data ---------------------
+TRAINING_DATA_DIR = "training_data"
+os.makedirs(TRAINING_DATA_DIR, exist_ok=True)
+training_frame_buffers = {}  # {sid: {'sign': str, 'frames': list}}
+
 # --------------------- Sign Language Model & Mediapipe Setup ---------------------
 import tensorflow as tf
 import mediapipe as mp
@@ -54,8 +61,24 @@ import mediapipe as mp
 # Directly load the model without adding signatures
 MODEL_PATH = "action.h5"
 
+class _CompatInputLayer(tf.keras.layers.InputLayer):
+    def __init__(self, *args, **kwargs):
+        if 'batch_shape' in kwargs:
+            kwargs['input_shape'] = kwargs.pop('batch_shape')[1:]
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def from_config(cls, config):
+        if 'batch_shape' in config:
+            config['input_shape'] = config.pop('batch_shape')[1:]
+        return super().from_config(config)
+
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
+    with tf.keras.utils.custom_object_scope({
+        'InputLayer': _CompatInputLayer,
+        'DTypePolicy': tf.keras.mixed_precision.Policy,
+    }):
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     print("Sign language model loaded successfully.")
 except Exception as e:
     print(f"Failed to load the sign language model: {e}")
@@ -63,24 +86,122 @@ except Exception as e:
 
 mp_holistic = mp.solutions.holistic
 
-# Define your action classes (must match the order used during training)
+# Action classes — must match the exact order used when the model was trained.
+# When you train a new model via /train, this list is updated automatically.
+# To add more signs manually, record them via /train and retrain.
 ACTIONS = [
     "george",
     "hello",
     "how",
     "not_signing",
-    "you"
-    # Add more actions as per your trained model
+    "you",
 ]
 
-# **Modified SIGN_TO_ENGLISH mapping to map signs to themselves**
+# Maps each sign name to the English text displayed on screen.
+# - Leave "not_signing" as "" so idle frames produce no output.
+# - All other signs should map to a word or phrase.
+# - When a new model is trained via /train, add entries here to match.
 SIGN_TO_ENGLISH = {
-    "george": "",
-    "hello": "",
-    "how": "",
-    "not_signing": "",
-    "you": "Hello george, how are you?"
-    # Add or modify as needed
+    # --- current trained signs ---
+    "george":      "George",
+    "hello":       "Hello",
+    "how":         "How",
+    "not_signing": "",        # intentionally silent — background/idle class
+    "you":         "You",
+
+    # --- common ASL signs (train these via /train to enable) ---
+    "thank_you":   "Thank you",
+    "yes":         "Yes",
+    "no":          "No",
+    "please":      "Please",
+    "sorry":       "Sorry",
+    "good":        "Good",
+    "bad":         "Bad",
+    "help":        "Help",
+    "stop":        "Stop",
+    "more":        "More",
+    "again":       "Again",
+    "name":        "Name",
+    "what":        "What",
+    "where":       "Where",
+    "when":        "When",
+    "why":         "Why",
+    "want":        "Want",
+    "like":        "Like",
+    "love":        "Love",
+    "friend":      "Friend",
+    "family":      "Family",
+    "home":        "Home",
+    "school":      "School",
+    "work":        "Work",
+    "eat":         "Eat",
+    "drink":       "Drink",
+    "sleep":       "Sleep",
+    "come":        "Come",
+    "go":          "Go",
+    "see":         "See",
+    "hear":        "Hear",
+    "understand":  "Understand",
+    "know":        "Know",
+    "think":       "Think",
+    "feel":        "Feel",
+    "fine":        "Fine",
+    "bye":         "Goodbye",
+    "morning":     "Good morning",
+    "night":       "Good night",
+    "i":           "I",
+    "me":          "Me",
+    "my":          "My",
+    "we":          "We",
+    "they":        "They",
+    "he":          "He",
+    "she":         "She",
+    "it":          "It",
+    "not":         "Not",
+    "maybe":       "Maybe",
+    "now":         "Now",
+    "later":       "Later",
+    "today":       "Today",
+    "tomorrow":    "Tomorrow",
+    "yesterday":   "Yesterday",
+    "time":        "Time",
+    "day":         "Day",
+    "week":        "Week",
+    "year":        "Year",
+    "number":      "Number",
+    "color":       "Color",
+    "beautiful":   "Beautiful",
+    "happy":       "Happy",
+    "sad":         "Sad",
+    "angry":       "Angry",
+    "scared":      "Scared",
+    "tired":       "Tired",
+    "sick":        "Sick",
+    "better":      "Better",
+    "different":   "Different",
+    "same":        "Same",
+    "big":         "Big",
+    "small":       "Small",
+    "new":         "New",
+    "old":         "Old",
+    "open":        "Open",
+    "close":       "Close",
+    "give":        "Give",
+    "take":        "Take",
+    "make":        "Make",
+    "buy":         "Buy",
+    "money":       "Money",
+    "water":       "Water",
+    "food":        "Food",
+    "book":        "Book",
+    "car":         "Car",
+    "house":       "House",
+    "city":        "City",
+    "country":     "Country",
+    "hospital":    "Hospital",
+    "doctor":      "Doctor",
+    "police":      "Police",
+    "emergency":   "Emergency",
 }
 
 # Constants for detection logic
@@ -351,6 +472,159 @@ def handle_disconnect():
     sign_language_enabled.pop(request.sid, None)
     user_sign_states.pop(request.sid, None)
     print(f"User disconnected: {request.sid}")
+
+# --------------------- Training Routes & Events ---------------------
+@app.route('/train')
+def train_page():
+    return render_template('train.html')
+
+
+@socketio.on('start_sequence')
+def handle_start_sequence(data):
+    sign = data.get('sign', '').strip().lower().replace(' ', '_')
+    if not sign:
+        emit('sequence_error', {'msg': 'Sign name is required'})
+        return
+    training_frame_buffers[request.sid] = {'sign': sign, 'frames': []}
+    emit('sequence_started', {'sign': sign})
+
+
+@socketio.on('training_frame')
+def handle_training_frame(data):
+    buf = training_frame_buffers.get(request.sid)
+    if buf is None or len(buf['frames']) >= TARGET_SEQUENCE_LEN:
+        return
+
+    b64_data = data.get('data')
+    if not b64_data:
+        return
+
+    try:
+        _, encoded = b64_data.split(',', 1)
+        decoded = base64.b64decode(encoded)
+        np_data = np.frombuffer(decoded, np.uint8)
+        frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+        if frame is None:
+            return
+    except Exception:
+        return
+
+    try:
+        with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = holistic.process(image_rgb)
+        keypoints = extract_keypoints(results)
+        buf['frames'].append(keypoints)
+
+        frame_count = len(buf['frames'])
+        emit('frame_processed', {'count': frame_count, 'total': TARGET_SEQUENCE_LEN})
+
+        if frame_count == TARGET_SEQUENCE_LEN:
+            sign = buf['sign']
+            sign_dir = os.path.join(TRAINING_DATA_DIR, sign)
+            os.makedirs(sign_dir, exist_ok=True)
+            existing = len([f for f in os.listdir(sign_dir) if f.endswith('.npy')])
+            np.save(os.path.join(sign_dir, f'seq_{existing}.npy'), np.array(buf['frames']))
+            del training_frame_buffers[request.sid]
+            emit('sequence_saved', {'sign': sign, 'seq_num': existing + 1})
+    except Exception as e:
+        emit('sequence_error', {'msg': str(e)})
+
+
+@socketio.on('get_training_data_info')
+def handle_get_training_info(_data):
+    info = {}
+    if os.path.exists(TRAINING_DATA_DIR):
+        for sign in sorted(os.listdir(TRAINING_DATA_DIR)):
+            sign_dir = os.path.join(TRAINING_DATA_DIR, sign)
+            if os.path.isdir(sign_dir):
+                info[sign] = len([f for f in os.listdir(sign_dir) if f.endswith('.npy')])
+    emit('training_data_info', {'info': info})
+
+
+@socketio.on('delete_sign_data')
+def handle_delete_sign_data(data):
+    sign = data.get('sign', '').strip()
+    sign_dir = os.path.join(TRAINING_DATA_DIR, sign)
+    if os.path.exists(sign_dir):
+        shutil.rmtree(sign_dir)
+    emit('sign_data_deleted', {'sign': sign})
+
+
+@socketio.on('train_model')
+def handle_train_model(data):
+    epochs = int(data.get('epochs', 50))
+    sid = request.sid
+
+    def do_train():
+        try:
+            global model, ACTIONS
+
+            signs = sorted([
+                d for d in os.listdir(TRAINING_DATA_DIR)
+                if os.path.isdir(os.path.join(TRAINING_DATA_DIR, d))
+            ])
+
+            if len(signs) < 2:
+                socketio.emit('training_error', {'msg': 'Need at least 2 different signs to train.'}, room=sid)
+                return
+
+            socketio.emit('training_progress', {'msg': f'Loading sequences for {len(signs)} signs...', 'percent': 5}, room=sid)
+
+            X, y = [], []
+            for label_idx, sign in enumerate(signs):
+                sign_dir = os.path.join(TRAINING_DATA_DIR, sign)
+                for seq_file in sorted(f for f in os.listdir(sign_dir) if f.endswith('.npy')):
+                    seq = np.load(os.path.join(sign_dir, seq_file))
+                    if seq.shape == (TARGET_SEQUENCE_LEN, 1662):
+                        X.append(seq)
+                        y.append(label_idx)
+
+            if len(X) == 0:
+                socketio.emit('training_error', {'msg': 'No valid sequences found.'}, room=sid)
+                return
+
+            X = np.array(X)
+            y = tf.keras.utils.to_categorical(y, num_classes=len(signs))
+
+            socketio.emit('training_progress', {'msg': f'Loaded {len(X)} sequences. Building model...', 'percent': 20}, room=sid)
+
+            new_model = tf.keras.Sequential([
+                tf.keras.layers.LSTM(64, return_sequences=True, activation='relu',
+                                     input_shape=(TARGET_SEQUENCE_LEN, 1662)),
+                tf.keras.layers.LSTM(128, return_sequences=True, activation='relu'),
+                tf.keras.layers.LSTM(64, return_sequences=False, activation='relu'),
+                tf.keras.layers.Dense(64, activation='relu'),
+                tf.keras.layers.Dense(32, activation='relu'),
+                tf.keras.layers.Dense(len(signs), activation='softmax')
+            ])
+            new_model.compile(optimizer='Adam', loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+
+            socketio.emit('training_progress', {'msg': 'Training...', 'percent': 25}, room=sid)
+
+            class ProgressCallback(tf.keras.callbacks.Callback):
+                def on_epoch_end(self, epoch, logs=None):
+                    percent = 25 + int(((epoch + 1) / epochs) * 70)
+                    acc = logs.get('categorical_accuracy', 0)
+                    socketio.emit('training_progress', {
+                        'msg': f'Epoch {epoch + 1}/{epochs} — accuracy: {acc:.1%}',
+                        'percent': percent
+                    }, room=sid)
+
+            new_model.fit(X, y, epochs=epochs, callbacks=[ProgressCallback()])
+
+            socketio.emit('training_progress', {'msg': 'Saving model...', 'percent': 97}, room=sid)
+            new_model.save(MODEL_PATH)
+            model = new_model
+            ACTIONS = signs
+
+            socketio.emit('training_complete', {'msg': 'Model trained and saved!', 'actions': signs}, room=sid)
+
+        except Exception as e:
+            socketio.emit('training_error', {'msg': str(e)}, room=sid)
+
+    threading.Thread(target=do_train, daemon=True).start()
+
 
 # --------------------- Error Handlers ---------------------
 @app.errorhandler(404)

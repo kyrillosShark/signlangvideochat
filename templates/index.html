@@ -182,7 +182,6 @@
       </div>
     </div>
     <p class="text-center text-muted mb-4">
-      This demo utilizes <strong>COCO-SSD</strong> for object detection in the browser (detects 80+ classes).<br>
       Please use <strong>HTTPS</strong> or <code>localhost</code> to enable camera permissions.
     </p>
     <div class="row justify-content-center">
@@ -219,6 +218,11 @@
               <i class="fas fa-sign-in-alt me-2"></i>Join Meeting
             </button>
           </div>
+          <div class="text-center mt-3">
+            <a href="/train" class="btn btn-outline-secondary btn-sm">
+              <i class="fas fa-graduation-cap me-2"></i>Train Sign Language Model
+            </a>
+          </div>
         </form>
       </div>
     </div>
@@ -234,36 +238,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
   
   <!-- Custom Script -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      const browserCheck = document.getElementById('browserCheck');
-      const form = document.querySelector('form');
-
-      // Browser Compatibility Check
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        browserCheck.classList.replace('alert-info', 'alert-danger');
-        browserCheck.innerHTML = '<i class="fas fa-times-circle me-2"></i>Your browser does not support webcam access. Please use a modern browser.';
-      } else {
-        browserCheck.classList.replace('alert-info', 'alert-success');
-        browserCheck.innerHTML = '<i class="fas fa-check-circle me-2"></i>Browser supports webcam access!';
-        setTimeout(() => {
-          browserCheck.classList.add('animate__fadeOutUp', 'animate__animated');
-          browserCheck.addEventListener('animationend', () => {
-            browserCheck.style.display = 'none';
-          });
-        }, 3000);
-      }
-
-      // Form Validation
-      form.addEventListener('submit', function (event) {
-        if (!form.checkValidity()) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-        form.classList.add('was-validated');
-      }, false);
-    });
-  </script>
+  <script src="../server.js"></script>
 </body>
 
 </html>
