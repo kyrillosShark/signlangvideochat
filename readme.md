@@ -44,6 +44,34 @@ A Flask + Socket.IO application that provides:
 
 ---
 
+## Hardware Recommendations
+
+### GPU (Strongly Recommended for Training)
+
+Training the LSTM model on CPU is possible but slow. A **CUDA-capable NVIDIA GPU** dramatically reduces training time and is recommended if you plan to train your own signs.
+
+| Hardware | Training speed | Notes |
+|---|---|---|
+| NVIDIA GPU (CUDA) | Fast | Recommended — enables GPU-accelerated TensorFlow |
+| CPU only | Slow | Works, but expect several minutes per training run |
+
+To enable GPU support:
+
+1. Install the [NVIDIA CUDA Toolkit 11.8](https://developer.nvidia.com/cuda-11-8-0-download-archive) and [cuDNN 8.6](https://developer.nvidia.com/cudnn).
+2. Install the GPU-enabled TensorFlow build:
+   ```bash
+   pip install tensorflow[and-cuda]==2.12.0
+   ```
+3. Verify TensorFlow detects your GPU:
+   ```python
+   python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+   ```
+   You should see your GPU listed. If the list is empty, check your CUDA/cuDNN versions match TensorFlow 2.12's requirements.
+
+Real-time sign detection during video chat also benefits from a GPU, as Mediapipe keypoint extraction and model inference run faster.
+
+---
+
 ## Setup & Installation
 
 ### 1. Clone the Repository
@@ -81,6 +109,8 @@ pyngrok==5.2.1
 eventlet==0.33.3
 protobuf==3.20.3
 ```
+
+> **GPU users:** replace `tensorflow==2.12.0` with `tensorflow[and-cuda]==2.12.0` for CUDA support.
 
 ### 4. Ensure the Model File is Present
 
@@ -132,33 +162,61 @@ When **Enable Sign Language** is active, the server detects signs and overlays t
 
 ## Training Your Own Model
 
-The app includes a built-in training interface at `http://localhost:8000/train`, accessible from the home page via the **Train Sign Language Model** button.
+The app includes a built-in training interface at `http://localhost:8000/train`, accessible from the home page via the **Train Sign Language Model** button. No external tools or scripts are needed — everything runs in the browser and server.
 
 ### Training Workflow
 
-1. **Add Signs** — Type a sign name (e.g. `hello`, `thank_you`) and press Enter or click `+`. Add at least 2 signs.
+#### Step 1 — Add Signs
+Type a sign name (e.g. `hello`, `thank_you`, `not_signing`) and press Enter or click `+`. You need at least **2 different signs** to train a model.
 
-2. **Record Sequences** — Select a sign, then click **Record Sequence**:
-   - A 3-second countdown begins.
-   - The server captures 10 frames from your webcam and extracts Mediapipe keypoints.
-   - Each completed recording is saved as one sequence.
-   - Repeat to build up your dataset (30+ sequences per sign recommended).
+#### Step 2 — Record Sequences
+Select a sign from the list, then click **Record Sequence**:
+- A **3-second countdown** gives you time to get into position.
+- The server automatically captures **10 frames** from your webcam (roughly 2 seconds of motion) and extracts Mediapipe pose, face, and hand keypoints from each frame.
+- A progress bar shows frame capture in real time.
+- Each completed recording is saved as one sequence to disk.
+- Repeat until you have enough sequences for each sign (30+ recommended).
 
-3. **Train the Model** — Set the number of epochs (50–100 recommended) and click **Train Model**:
-   - Training runs on the server and progress updates appear in real time.
-   - When complete, the new `action.h5` is saved and immediately used for detection in live meetings.
+While recording, a **live skeleton overlay** is drawn on the video — green for pose, red for left hand, blue for right hand, and teal for the face outline. Use this to confirm the model can see your landmarks clearly before recording.
+
+#### Step 3 — Train the Model
+Once you have data for at least 2 signs:
+- Adjust the **Epochs** slider (50–100 is a good starting point).
+- Click **Train Model**.
+- Training runs on the server in a background thread. Live epoch-by-epoch progress and accuracy are displayed as training runs.
+- When complete, the new `action.h5` is saved to disk and immediately loaded into the running server — no restart needed.
+- The live meeting sign detection will now use your newly trained model.
+
+### Model Architecture
+
+The trained model is a 3-layer LSTM network:
+
+```
+Input: (10 frames × 1662 keypoints)
+  → LSTM(64, return_sequences=True)
+  → LSTM(128, return_sequences=True)
+  → LSTM(64)
+  → Dense(64) → Dense(32) → Dense(num_signs, softmax)
+```
+
+The 1662-dimensional keypoint vector per frame comes from:
+- **Pose**: 33 landmarks × 4 values (x, y, z, visibility) = 132
+- **Face**: 468 landmarks × 3 values (x, y, z) = 1404
+- **Left hand**: 21 landmarks × 3 values = 63
+- **Right hand**: 21 landmarks × 3 values = 63
 
 ### Tips for Good Accuracy
 
-- Record **30 or more sequences** per sign.
-- Vary your position, distance from camera, and lighting between recordings.
-- Include a **`not_signing`** class (idle/neutral hand position) to reduce false positives.
-- Keep the motion consistent within each recording for the same sign.
-- Use **50–100 epochs** for most datasets.
+- Record **30 or more sequences** per sign for reliable detection.
+- Vary your position, distance, and lighting between recordings to improve generalisation.
+- Always include a **`not_signing`** class (idle hands, neutral position) — this prevents the model from hallucinating signs when you aren't signing.
+- Keep hand movements **consistent** within each recording of the same sign.
+- Use **50–100 epochs** for most datasets; smaller datasets may overfit above 100.
+- A **CUDA GPU** (see [Hardware Recommendations](#hardware-recommendations)) will train 10–20× faster than CPU.
 
 ### Training Data Storage
 
-Recorded sequences are saved to the `training_data/` directory:
+Recorded sequences are saved to the `training_data/` directory and persist between server restarts:
 
 ```
 training_data/
@@ -172,7 +230,7 @@ training_data/
     └── ...
 ```
 
-Each `.npy` file is a `(10, 1662)` array — 10 frames of flattened pose, face, and hand keypoints. This data persists between server restarts, so you can add more sequences over time without restarting.
+Each `.npy` file is a `(10, 1662)` NumPy array. You can add more sequences to any sign at any time and retrain — the training page loads existing data automatically. To remove a sign's data, click the trash icon next to it in the training interface.
 
 ---
 
